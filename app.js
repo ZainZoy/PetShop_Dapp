@@ -21,53 +21,23 @@ const PET_ADOPTION_DATA = [
 // Contract ABI - Defines the contract interface for web3
 const ADOPTION_CONTRACT_ABI = [
     {
-        "inputs": [
-            {
-                "internalType": "uint256",
-                "name": "petId",
-                "type": "uint256"
-            }
-        ],
+        "inputs": [{ "internalType": "uint256", "name": "petId", "type": "uint256" }],
         "name": "adopt",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
+        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
         "stateMutability": "nonpayable",
         "type": "function"
     },
     {
-        "inputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
+        "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
         "name": "adopters",
-        "outputs": [
-            {
-                "internalType": "address",
-                "name": "",
-                "type": "address"
-            }
-        ],
+        "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
         "stateMutability": "view",
         "type": "function"
     },
     {
         "inputs": [],
         "name": "getAdopters",
-        "outputs": [
-            {
-                "internalType": "address[16]",
-                "name": "",
-                "type": "address[16]"
-            }
-        ],
+        "outputs": [{ "internalType": "address[16]", "name": "", "type": "address[16]" }],
         "stateMutability": "view",
         "type": "function"
     }
@@ -80,25 +50,57 @@ const CONTRACT_DEPLOYED_ADDRESS = "0xfcC2dBA3D7663F40d75Ca119dbE79f94B064BBFd";
 const TARGET_CHAIN_ID_HEX = '0xaa36a7'; // Sepolia Chain ID (11155111)
 const TARGET_NETWORK_NAME = 'Sepolia Testnet';
 
-let currentWeb3Instance;
-let adoptionContractInstance;
-let currentWalletAccount;
+let currentWeb3Instance = null;
+let adoptionContractInstance = null;
+let currentWalletAccount = null;
+
+// Helper: safe truncate an Ethereum address (keeps last 4 chars robustly)
+function shortAddress(addr) {
+    if (!addr || typeof addr !== 'string') return '';
+    const len = addr.length;
+    if (len <= 10) return addr;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
 
 // Initialize dApp on page load
 window.addEventListener('load', async () => {
-    // 1. Render the pets inventory
     renderAllPetCards();
 
-    // 2. Initial MetaMask check
     if (typeof window.ethereum !== 'undefined') {
-        console.info('Ethereum provider (MetaMask) detected!');
+        console.info('Ethereum provider detected.');
+        // Attach accounts/network listeners (if provider exists)
+        window.ethereum.on && window.ethereum.on('chainChanged', () => {
+            // Full reload ensures UI and provider state sync cleanly.
+            window.location.reload();
+        });
+
+        window.ethereum.on && window.ethereum.on('accountsChanged', (accounts) => {
+            // If no accounts, clear UI and stored state
+            if (!accounts || accounts.length === 0) {
+                currentWalletAccount = null;
+                document.getElementById('accountDisplay').textContent = '';
+                document.getElementById('connectButton').textContent = 'Connect Wallet';
+                document.getElementById('connectButton').disabled = false;
+                adoptionContractInstance = null;
+                currentWeb3Instance = null;
+                fetchAndUpdateAdoptionStatuses(); // refresh UI to re-enable buttons
+            } else {
+                // Use first account and refresh statuses
+                currentWalletAccount = accounts[0];
+                document.getElementById('accountDisplay').textContent =
+                    `Active Wallet: ${shortAddress(currentWalletAccount)} (${TARGET_NETWORK_NAME})`;
+                fetchAndUpdateAdoptionStatuses();
+            }
+        });
     } else {
         alert('MetaMask or a compatible Ethereum wallet is required to use this decentralized application!');
     }
 });
 
-// Utility function to switch to the Sepolia network
+// Utility: attempt to switch to the Sepolia network (or add it)
 async function ensureSepoliaNetwork() {
+    if (!window.ethereum) return false;
+
     try {
         await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
@@ -106,250 +108,270 @@ async function ensureSepoliaNetwork() {
         });
         return true;
     } catch (switchError) {
-        // Error code 4902 means the chain hasn't been added to MetaMask
-        if (switchError.code === 4902) {
+        // If chain not added, add it
+        if (switchError && switchError.code === 4902) {
             try {
                 await window.ethereum.request({
                     method: 'wallet_addEthereumChain',
-                    params: [
-                        {
-                            chainId: TARGET_CHAIN_ID_HEX,
-                            chainName: TARGET_NETWORK_NAME,
-                            nativeCurrency: {
-                                name: 'Sepolia ETH', // Slightly changed name
-                                symbol: 'ETH',
-                                decimals: 18,
-                            },
-                            rpcUrls: ['https://sepolia.infura.io/v3/'], // Retained the specific URL
-                            blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                    params: [{
+                        chainId: TARGET_CHAIN_ID_HEX,
+                        chainName: TARGET_NETWORK_NAME,
+                        nativeCurrency: {
+                            name: 'Sepolia ETH',
+                            symbol: 'ETH',
+                            decimals: 18,
                         },
-                    ],
+                        // NOTE: RPC URL is left generic; Metamask will accept it.
+                        rpcUrls: ['https://sepolia.infura.io/v3/'],
+                        blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                    }],
                 });
                 return true;
             } catch (addError) {
-                console.error('Failed to add Sepolia network definition:', addError);
+                console.error('Failed to add the Sepolia network:', addError);
                 return false;
             }
         }
-        console.error('Error during network switch attempt:', switchError);
+        console.error('Error switching network:', switchError);
         return false;
     }
 }
 
-// Check the current network ID against the target network ID
+// Verify current network is the target network
 async function verifyCurrentNetwork() {
-    const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
-    return currentChainId === TARGET_CHAIN_ID_HEX;
+    if (!window.ethereum) return false;
+    try {
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        return chainId === TARGET_CHAIN_ID_HEX;
+    } catch (err) {
+        console.error('Unable to read chainId:', err);
+        return false;
+    }
 }
 
-// Connect Wallet Button Handler
-document.getElementById('connectButton').addEventListener('click', async () => {
-    try {
-        // Request connection and get accounts
-        const accountsList = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        currentWalletAccount = accountsList[0];
-
-        // Network Check and Switch Flow
-        const isTargetNetwork = await verifyCurrentNetwork();
-        if (!isTargetNetwork) {
-            const shouldAttemptSwitch = confirm(
-                `The dApp is configured for the ${TARGET_NETWORK_NAME}. ` +
-                `Click OK to prompt an automatic switch in MetaMask.`
-            );
-            if (shouldAttemptSwitch) {
-                const successfullySwitched = await ensureSepoliaNetwork();
-                if (!successfullySwitched) {
-                    alert(`Please manually switch to ${TARGET_NETWORK_NAME} in your wallet.`);
-                    return;
-                }
-                // Small delay to allow MetaMask to process the chain switch
-                await new Promise(res => setTimeout(res, 1000));
-            } else {
-                alert(`Cannot proceed without connecting to the ${TARGET_NETWORK_NAME}.`);
-                return;
-            }
+// Connect Wallet Button Handler (safe attach)
+const connectBtn = document.getElementById('connectButton');
+if (connectBtn) {
+    connectBtn.addEventListener('click', async () => {
+        if (!window.ethereum) {
+            alert('Please install MetaMask or another Ethereum wallet extension first.');
+            return;
         }
 
-        // Initialize Web3 and Contract Instances
-        currentWeb3Instance = new Web3(window.ethereum);
-        adoptionContractInstance = new currentWeb3Instance.eth.Contract(ADOPTION_CONTRACT_ABI, CONTRACT_DEPLOYED_ADDRESS);
+        try {
+            // Request accounts
+            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+            if (!accounts || accounts.length === 0) {
+                alert('No accounts returned.');
+                return;
+            }
+            currentWalletAccount = accounts[0];
 
-        // Update User Interface State
-        document.getElementById('accountDisplay').textContent =
-            `Active Wallet: ${currentWalletAccount.substring(0, 6)}...${currentWalletAccount.substring(38)} (${TARGET_NETWORK_NAME})`;
-        document.getElementById('connectButton').textContent = 'Wallet Connected';
-        document.getElementById('connectButton').disabled = true;
+            // Check network
+            const onTarget = await verifyCurrentNetwork();
+            if (!onTarget) {
+                const shouldAttemptSwitch = confirm(
+                    `The dApp is configured for the ${TARGET_NETWORK_NAME}. Click OK to prompt an automatic switch in MetaMask.`
+                );
+                if (shouldAttemptSwitch) {
+                    const switched = await ensureSepoliaNetwork();
+                    if (!switched) {
+                        alert(`Please switch your wallet manually to ${TARGET_NETWORK_NAME} and reconnect.`);
+                        return;
+                    }
+                    // short delay to give provider time to update
+                    await new Promise(res => setTimeout(res, 800));
+                } else {
+                    alert(`Cannot proceed without connecting to ${TARGET_NETWORK_NAME}.`);
+                    return;
+                }
+            }
 
-        // Fetch and update adoption statuses from the smart contract
-        await fetchAndUpdateAdoptionStatuses();
+            // Init web3 + contract instances
+            currentWeb3Instance = new Web3(window.ethereum);
+            adoptionContractInstance = new currentWeb3Instance.eth.Contract(ADOPTION_CONTRACT_ABI, CONTRACT_DEPLOYED_ADDRESS);
 
-        // Set up event listener for network changes (requires full refresh for robust dApp behavior)
-        window.ethereum.on('chainChanged', () => {
-            window.location.reload();
-        });
+            // Update UI
+            document.getElementById('accountDisplay').textContent = `Active Wallet: ${shortAddress(currentWalletAccount)} (${TARGET_NETWORK_NAME})`;
+            connectBtn.textContent = 'Wallet Connected';
+            connectBtn.disabled = true;
 
-    } catch (connectionError) {
-        console.error('Fatal error during MetaMask connection sequence:', connectionError);
-        alert('Failed to connect the wallet. Check the console for details.');
-    }
-});
+            // Fetch adoption statuses
+            await fetchAndUpdateAdoptionStatuses();
+        } catch (err) {
+            console.error('Wallet connection error:', err);
+            if (err && err.code === 4001) {
+                alert('Connection request denied by user.');
+            } else {
+                alert('Failed to connect wallet. See console for details.');
+            }
+        }
+    });
+}
 
-// Function responsible for generating the pet cards on the page
+// Render all pet cards and attach handlers
 function renderAllPetCards() {
     const containerElement = document.getElementById('petsRow');
+    if (!containerElement) return;
 
     PET_ADOPTION_DATA.forEach((petDetails, petIndex) => {
         const cardWrapper = document.createElement('div');
         cardWrapper.className = 'pet-card';
         cardWrapper.innerHTML = `
-            <img class="pet-image" src="images/pet-${petIndex}.jpeg" alt="${petDetails.name}" onerror="this.src='https://via.placeholder.com/200x200.png?text=Pet+${petIndex + 1}'">
+            <img class="pet-image" src="images/pet-${petIndex}.jpeg" alt="${petDetails.name}" onerror="this.src='https://via.placeholder.com/400x300.png?text=Pet+${petIndex + 1}'">
             <div class="pet-name">${petDetails.name}</div>
             <div class="pet-breed">${petDetails.breed}</div>
             <div class="pet-age">Approx. Age: ${petDetails.age}</div>
             <div class="adopter-info" data-adopter-id="${petIndex}"></div>
             <button class="adopt-btn" data-id="${petIndex}">Adopt Today!</button>
-        `; // Minor text/attribute changes
+        `;
         containerElement.appendChild(cardWrapper);
     });
 
-    // Attach event listeners to all adoption buttons
+    // Attach event listeners to adoption buttons (delegation-safe)
     document.querySelectorAll('.adopt-btn').forEach(button => {
         button.addEventListener('click', processAdoptionRequest);
     });
 }
 
-// Fetches the adoption status from the blockchain and updates the UI
+// Fetch adoption statuses and update UI
 async function fetchAndUpdateAdoptionStatuses() {
+    // Reset UI if contract not set
     if (!adoptionContractInstance) {
-        console.warn('Contract instance is not available for status check.');
+        // Ensure all buttons enabled (unless someone adopted offline)
+        document.querySelectorAll('.adopt-btn').forEach(btn => {
+            btn.textContent = 'Adopt Today!';
+            btn.disabled = false;
+        });
+        document.querySelectorAll('.adopter-info').forEach(info => info.innerHTML = '');
         return;
     }
 
     try {
         let currentAdopters;
-
-        // Strategy 1: Try batch retrieval via getAdopters()
         try {
             currentAdopters = await adoptionContractInstance.methods.getAdopters().call();
-            console.log('Batch retrieval (getAdopters) success:', currentAdopters);
-        } catch (e) {
-            // Strategy 2: Fallback to individual calls if batch fails
-            console.warn('Batch retrieval failed, falling back to 16 individual calls...', e);
+            console.log('getAdopters() returned:', currentAdopters);
+        } catch (err) {
+            // Fallback: query individually
+            console.warn('getAdopters() failed, falling back to per-index calls', err);
             currentAdopters = [];
             for (let i = 0; i < 16; i++) {
                 try {
-                    const adopterAddress = await adoptionContractInstance.methods.adopters(i).call();
-                    currentAdopters.push(adopterAddress);
-                } catch (err) {
-                    console.error(`Error checking status for pet index ${i}:`, err);
-                    currentAdopters.push('0x0000000000000000000000000000000000000000'); // Default to zero address on error
+                    const addr = await adoptionContractInstance.methods.adopters(i).call();
+                    currentAdopters.push(addr);
+                } catch (innerErr) {
+                    console.error(`Failed to fetch adopter for index ${i}:`, innerErr);
+                    currentAdopters.push('0x0000000000000000000000000000000000000000');
                 }
             }
         }
 
-        // Normalize the result into an array if necessary (handles web3.js return format variations)
-        let normalizedAdoptersArray;
+        // Normalize result to array
+        let adoptersArray;
         if (Array.isArray(currentAdopters)) {
-            normalizedAdoptersArray = currentAdopters;
-        } else if (typeof currentAdopters === 'object' && currentAdopters !== null) {
-            normalizedAdoptersArray = Object.values(currentAdopters);
+            adoptersArray = currentAdopters;
+        } else if (currentAdopters && typeof currentAdopters === 'object') {
+            adoptersArray = Object.values(currentAdopters);
         } else {
-            console.error('Adoption status data received in an unexpected format:', currentAdopters);
+            console.error('Unexpected adopters response format:', currentAdopters);
             return;
         }
 
-        console.log('Final array of adopters being processed:', normalizedAdoptersArray);
+        const ZERO = '0x0000000000000000000000000000000000000000';
 
-        normalizedAdoptersArray.forEach((adopterAddress, petId) => {
+        adoptersArray.forEach((adopterAddress, petId) => {
             const infoContainer = document.querySelector(`[data-adopter-id="${petId}"]`);
-            const adoptButton = document.querySelector(`[data-id="${petId}"]`);
+            const adoptButton = document.querySelector(`.adopt-btn[data-id="${petId}"]`);
 
-            // Check for valid adoption address (non-zero and non-empty)
-            const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-            const isPetAdopted = adopterAddress &&
-                adopterAddress.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
+            const adopted = adopterAddress && adopterAddress.toLowerCase() !== ZERO.toLowerCase();
 
-            if (isPetAdopted) {
-                // Update UI elements for adopted pet
+            if (adopted) {
                 if (adoptButton) {
-                    adoptButton.textContent = 'Permanently Adopted'; // Minor text change
+                    adoptButton.textContent = 'Permanently Adopted';
                     adoptButton.disabled = true;
                 }
-
                 if (infoContainer) {
-                    // Display truncated adopter wallet address
-                    const shortAddr = `${adopterAddress.substring(0, 6)}...${adopterAddress.substring(38)}`;
-                    infoContainer.innerHTML = `<div class="adopted-by">Claimed by: <span class="wallet-address-small">${shortAddr}</span></div>`; // Minor CSS class/text change
-                    infoContainer.title = adopterAddress; // Full address on hover
+                    infoContainer.innerHTML = `<div class="adopted-by">Claimed by: <span class="wallet-address-small">${shortAddress(adopterAddress)}</span></div>`;
+                    infoContainer.title = adopterAddress;
                 }
             } else {
-                // Ensure UI is clean for unadopted pets
-                if (infoContainer) {
-                    infoContainer.innerHTML = '';
-                }
+                if (infoContainer) infoContainer.innerHTML = '';
                 if (adoptButton) {
-                    adoptButton.textContent = 'Adopt Today!'; // Reset button text
+                    adoptButton.textContent = 'Adopt Today!';
                     adoptButton.disabled = false;
                 }
             }
         });
-    } catch (statusError) {
-        console.error('Critical Error loading adoption statuses:', statusError);
+    } catch (err) {
+        console.error('Error fetching adoption statuses:', err);
     }
 }
 
-// Handles the transaction submission for pet adoption
+// Handler for adoption button clicks
 async function processAdoptionRequest(event) {
-    const petIdentifier = parseInt(event.target.dataset.id);
+    // Use currentTarget to avoid weird event.target behavior
+    const btn = event.currentTarget;
+    const petIdentifier = parseInt(btn.dataset.id, 10);
+
+    if (Number.isNaN(petIdentifier)) {
+        alert('Invalid pet selection.');
+        return;
+    }
 
     if (!currentWalletAccount) {
-        alert('Action Required: Please connect your Ethereum wallet before adopting!');
+        alert('Please connect your Ethereum wallet before adopting.');
+        return;
+    }
+
+    if (!adoptionContractInstance) {
+        alert('Contract is not initialized. Please connect wallet and ensure you are on Sepolia.');
         return;
     }
 
     try {
-        // Provide immediate visual feedback and disable button
-        event.target.textContent = 'Processing...';
-        event.target.disabled = true;
+        // Visual feedback
+        btn.disabled = true;
+        const prevText = btn.textContent;
+        btn.textContent = 'Processing...';
 
-        // Execute the smart contract transaction
-        await adoptionContractInstance.methods.adopt(petIdentifier).send({
+        // Send transaction
+        const tx = await adoptionContractInstance.methods.adopt(petIdentifier).send({
             from: currentWalletAccount,
-            gas: 300000 // Fixed gas limit for simplicity
+            gas: 300000
         });
 
-        // Success feedback
-        event.target.textContent = 'Adopted Successfully! 🎉';
+        console.log('Adoption tx receipt:', tx);
 
-        // Update adopter info locally for immediate display
+        // Update UI
+        btn.textContent = 'Adopted Successfully! 🎉';
+
         const infoElement = document.querySelector(`[data-adopter-id="${petIdentifier}"]`);
         if (infoElement) {
-            const shortAddr = `${currentWalletAccount.substring(0, 6)}...${currentWalletAccount.substring(38)}`;
-            infoElement.innerHTML = `<div class="adopted-by">Claimed by: <span class="wallet-address-small">${shortAddr}</span></div>`;
+            infoElement.innerHTML = `<div class="adopted-by">Claimed by: <span class="wallet-address-small">${shortAddress(currentWalletAccount)}</span></div>`;
             infoElement.title = currentWalletAccount;
         }
 
         alert(`Adoption transaction confirmed! You are the new owner of ${PET_ADOPTION_DATA[petIdentifier].name}.`);
 
-        // Final status sync
+        // Re-sync final statuses
         await fetchAndUpdateAdoptionStatuses();
+    } catch (err) {
+        console.error('Transaction failed:', err);
 
-    } catch (transactionError) {
-        console.error('Transaction Failed or Denied:', transactionError);
-
-        let feedbackMessage = 'Transaction failed. ';
-        if (transactionError.code === 4001 || transactionError.message?.includes('User denied')) {
-            feedbackMessage = 'Adoption request was cancelled by the user.';
-        } else if (transactionError.message?.includes('insufficient funds')) {
-            feedbackMessage += 'Insufficient ETH (gas) in your wallet. Please acquire test ETH.';
+        let feedback = 'Transaction failed. ';
+        if (err && (err.code === 4001 || (err.message && err.message.toLowerCase().includes('user denied')))) {
+            feedback = 'Adoption request was cancelled by the user.';
+        } else if (err && err.message && err.message.toLowerCase().includes('insufficient funds')) {
+            feedback += 'Insufficient ETH (gas). Please add test ETH to your wallet.';
         } else {
-            feedbackMessage += 'An unknown error occurred. Please review the console.';
+            feedback += 'See console for details.';
         }
 
-        alert(feedbackMessage);
+        alert(feedback);
 
-        // Reset button state
-        event.target.textContent = 'Adopt Today!';
-        event.target.disabled = false;
+        // restore button state
+        btn.textContent = 'Adopt Today!';
+        btn.disabled = false;
     }
 }

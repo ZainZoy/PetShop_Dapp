@@ -7,16 +7,11 @@
 
 :root {
     --color-primary: #667eea;
-    /* Blue-Violet */
     --color-secondary: #764ba2;
-    /* Darker Purple */
     --color-success: #17a2b8;
-    /* Teal for Adopt */
     --color-success-dark: #138496;
     --color-neutral: #e9ecef;
-    /* Light Gray */
     --color-background: #f8f9fa;
-    /* Off-White Background */
     --color-text-dark: #343a40;
     --shadow-light: 0 4px 15px rgba(0, 0, 0, 0.1);
     --shadow-deep: 0 10px 30px rgba(0, 0, 0, 0.2);
@@ -67,7 +62,6 @@ h1 {
     background: white;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.05);
     margin-top: -1px;
-    /* Overlap shadow */
 }
 
 .section-title {
@@ -97,7 +91,6 @@ h1 {
     padding: 10px 20px;
     font-size: 1em;
     border-radius: 50px;
-    /* Pill shape */
     cursor: pointer;
     transition: all 0.3s;
     font-weight: 600;
@@ -110,21 +103,19 @@ h1 {
 }
 
 .wallet-status {
-    /* Renamed from #accountDisplay for class consistency */
     margin-top: 5px;
     color: white;
     font-weight: 400;
     font-size: 0.9em;
 }
 
-/* BUTTON UTILITY CLASS (used on connect-btn) */
+/* BUTTON UTILITY CLASS */
 .action-shadow {
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
 /* PET GRID STYLES */
 .pets-grid {
-    /* Renamed from .pets-container */
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 30px;
@@ -150,7 +141,6 @@ h1 {
 .pet-image {
     width: 100%;
     height: 250px;
-    /* Slightly taller image */
     object-fit: cover;
     border-radius: 8px;
     margin-bottom: 15px;
@@ -180,7 +170,6 @@ h1 {
 .adopter-info {
     margin-bottom: 15px;
     min-height: 25px;
-    /* Ensures space even when empty */
 }
 
 /* ADOPTER INFO STYLES */
@@ -196,7 +185,6 @@ h1 {
 }
 
 .wallet-address-small {
-    /* Matches the JS class for short address */
     font-family: 'Consolas', monospace;
     color: var(--color-success-dark);
     font-weight: 700;

@@ -1,7 +1,7 @@
 // Pet shop inventory data (16 slots matching the smart contract array)
 const PET_ADOPTION_DATA = [
     { name: "Apollo", breed: "Siberian Husky", age: "2 years" },
-    { name: "Luna", breed: "Cocker Spaniel", age: "1 year" },
+    { name: "Luna", breed: "Spaniel", age: "1 year" },
     { name: "Rex", breed: "German Shepherd", age: "4 years" },
     { name: "Daisy", breed: "Beagle", age: "6 months" },
     { name: "Ziggy", breed: "Poodle (Toy)", age: "3 months" },
@@ -20,60 +20,39 @@ const PET_ADOPTION_DATA = [
 
 // Contract ABI - Defines the contract interface for web3
 const ADOPTION_CONTRACT_ABI = [
-    [
-        {
-            "inputs": [
-                {
-                    "internalType": "uint256",
-                    "name": "petId",
-                    "type": "uint256"
-                }
-            ],
-            "name": "adopt",
-            "outputs": [
-                {
-                    "internalType": "uint256",
-                    "name": "",
-                    "type": "uint256"
-                }
-            ],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        },
-        {
-            "inputs": [
-                {
-                    "internalType": "uint256",
-                    "name": "",
-                    "type": "uint256"
-                }
-            ],
-            "name": "adopters",
-            "outputs": [
-                {
-                    "internalType": "address",
-                    "name": "",
-                    "type": "address"
-                }
-            ],
-            "stateMutability": "view",
-            "type": "function"
-        },
-        {
-            "inputs": [],
-            "name": "getAdopters",
-            "outputs": [
-                {
-                    "internalType": "address[16]",
-                    "name": "",
-                    "type": "address[16]"
-                }
-            ],
-            "stateMutability": "view",
-            "type": "function"
-        }
-    ]
+    {
+        "inputs": [
+            { "internalType": "uint256", "name": "petId", "type": "uint256" }
+        ],
+        "name": "adopt",
+        "outputs": [
+            { "internalType": "uint256", "name": "", "type": "uint256" }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            { "internalType": "uint256", "name": "", "type": "uint256" }
+        ],
+        "name": "adopters",
+        "outputs": [
+            { "internalType": "address", "name": "", "type": "address" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getAdopters",
+        "outputs": [
+            { "internalType": "address[16]", "name": "", "type": "address[16]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
 ];
+
 
 // Deployed contract address on the target network
 const CONTRACT_DEPLOYED_ADDRESS = "0x28d70b259efC65A22ed3ab938B8178dFd6FD921F";
